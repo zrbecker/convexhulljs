@@ -1,0 +1,204 @@
+﻿<!DOCTYPE html>
+<html xmlns="http://www.w3.org/1999/xhtml">
+<head>
+    <title>Convex Hull Demo</title>
+    <style type="text/css">
+        body {
+            font-family: Helvetica, Arial, 'DejaVu Sans', 'Liberation Sans', Freesans, sans-serif
+        }
+
+        #content {
+            width: 850px;
+            margin: 0 auto;
+        }
+
+        #canvasConvexHull {
+            display: block;
+            border: 1px solid #000;
+            float: left;
+            margin-left:10px;
+            margin-top:30px;
+        }
+
+        #controls {
+            float: left;
+        }
+    </style>
+    <script src="js/jquery-2.0.0.min.js"></script>
+    <script>
+        $(function () {
+            var context = document.getElementById("canvasConvexHull").getContext("2d");
+            var width = context.canvas.width, height = context.canvas.height;
+            var cx = width / 2, cy = height / 2;
+            var sx = 10, sy = -10;
+
+            context.translate(cx, cy);
+            context.scale(sx, sy);
+
+            var txtPointList = $("#txtPointList");
+            var txtDelay = $("#txtDelay");
+            var txtNumRandom = $("#txtNumRandom");
+            var txtPointSize = $("#txtPointSize");
+            var btnCompute = $("#btnCompute");
+            var btnUpdate = $("#btnUpdate");
+            var btnRandom = $("#btnRandom");
+
+            var PointColor = "#000";
+            var PointSize = parseFloat(txtPointSize.val());
+
+            var PolygonFillColor = "#8FF";
+            var PolygonStrokeColor = "#000";
+            var PolygonLineWidth = 0.1;
+
+            function drawPolygon(ctx, pts) {
+                ctx.beginPath();
+                ctx.moveTo(pts[0][0], pts[0][1]);
+                for (var i = 1; i < pts.length; ++i)
+                    ctx.lineTo(pts[i][0], pts[i][1]);
+                ctx.lineTo(pts[0][0], pts[0][1]);
+                ctx.closePath();
+                ctx.strokeStyle = PolygonStrokeColor;
+                ctx.lineWidth = PolygonLineWidth;
+                ctx.fillStyle = PolygonFillColor;
+                ctx.fill();
+                if (PolygonLineWidth != 0)
+                    ctx.stroke();
+            }
+
+            function drawPoint(ctx, p) {
+                ctx.beginPath();
+                ctx.arc(p[0], p[1], PointSize, 0, 2 * Math.PI, false);
+                ctx.closePath();
+                ctx.fillStyle = PointColor;
+                ctx.fill();
+            }
+
+            function drawPoints(ctx, pts) {
+                pts.forEach(function (p, i, array) {
+                    drawPoint(ctx, p);
+                });
+            }
+
+            function clear(ctx) {
+                ctx.save();
+                ctx.setTransform(1, 0, 0, 1, 0, 0);
+                ctx.clearRect(0, 0, ctx.canvas.width, ctx.canvas.height);
+                ctx.restore();
+            }
+
+            function disableInput(val) {
+                txtPointList.attr("disabled", val);
+                txtDelay.attr("disabled", val);
+                txtNumRandom.attr("disabled", val);
+                btnCompute.attr("disabled", val);
+                btnUpdate.attr("disabled", val);
+                btnRandom.attr("disabled", val);
+            }
+
+            var points = [];
+            var worker = new Worker("js/convexhull.js");
+            worker.postMessage({
+                type: "randomPoints",
+                nMin: txtNumRandom.val(),
+                nMax: txtNumRandom.val()
+            });
+
+            worker.addEventListener("message", function (e) {
+                switch (e.data.type) {
+                    case "convexHull":
+                        clear(context);
+                        drawPolygon(context, e.data.hull);
+                        drawPoints(context, points);
+                        disableInput(false);
+                        break;
+                    case "randomPoints":
+                        points = e.data.points;
+                        txtPointList.val(JSON.stringify(points));
+                        clear(context);
+                        drawPoints(context, points);
+                        disableInput(false);
+                        break;
+                    case "upperHull":
+                        clear(context);
+                        drawPolygon(context, e.data.info);
+                        drawPoints(context, points);
+                        break;
+                    case "lowerHull":
+                        clear(context);
+                        var upperHull = e.data.info2;
+                        upperHull.pop();
+                        drawPolygon(context, upperHull.concat(e.data.info));
+                        drawPoints(context, points);
+                        break;
+                    case "debug":
+                        console.log(e.data.message + ": " + JSON.stringify(e.data.info));
+                        break;
+                }
+            });
+
+            txtPointSize.focusout(function () {
+                PointSize = parseFloat(txtPointSize.val());
+            });
+            
+            btnCompute.click(function () {
+                txtPointList.val(JSON.stringify(points));
+                var delay = parseInt(txtDelay.val());
+                if (!delay || delay < 0)
+                    delay = 0;
+                if (delay > 1000)
+                    delay = 1000;
+                worker.postMessage({
+                    type: "convexHull",
+                    delay: delay,
+                    points: points
+                });
+                disableInput(true);
+            });
+
+            btnUpdate.click(function () {
+                points = JSON.parse(txtPointList.val());
+                txtPointList.val(JSON.stringify(points));
+                clear(context);
+                drawPoints(context, points);
+            });
+
+            btnRandom.click(function () {
+                worker.postMessage({
+                    type: "randomPoints",
+                    nMin: txtNumRandom.val(),
+                    nMax: txtNumRandom.val()
+                });
+                disableInput(true);
+            });
+        });
+    </script>
+</head>
+<body>
+    <div id="content">
+        <div id="controls">
+            <h1 id="title">Convex Hull Demo</h1>
+            <h3>List of points</h3>
+            <p><em>Shows points in [-25, 25] x [-25, 25]</em></p>
+            <textarea id="txtPointList" rows="20" cols="35"></textarea>
+            <div>
+                <button id="btnCompute" type="button">Compute Hull</button>
+                <button id="btnUpdate" type="button">Update</button>
+                <button id="btnRandom" type="button">Random</button>
+            </div>
+            <div>
+                <label>Delay (ms): </label>
+                <input type="text" id="txtDelay" value="100" style="width:50px;" />
+            </div>
+            <div>
+                <label>Number of Points: </label>
+                <input type="text" id="txtNumRandom" value="25" style="width:50px;" />
+            </div>
+            <div>
+                <label>Point Size: </label>
+                <input type="text" id="txtPointSize" value="0.3" style="width:50px;" />
+            </div>
+        </div>
+        <canvas id="canvasConvexHull" width="500" height="500"></canvas>
+    </div>
+</body>
+</html>
